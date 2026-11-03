@@ -1,0 +1,10 @@
+.DS_Store
+node_modules/
+**/gpui-kit.d.ts
+**/jsconfig.json
+.env
+.env.*
+*.log
+*.jsonl
+.cache/
+.omp/
