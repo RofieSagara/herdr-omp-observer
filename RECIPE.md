@@ -1,6 +1,6 @@
 # OMP agents for Herdr
 
-A Herdr Agents sidebar that shows OMP's own subagents beside native Herdr children, plus a checklist button that expands each OMP terminal's task list. Tasks are compact one-line rows with L-shaped connectors and status icons; hover reveals the complete task content. This is one integration package with two components: a Herdr UI mod and an OMP observation extension. It does not replace OMP's delegation or create substitute agent terminals.
+A Herdr Agents sidebar that shows OMP's own subagents beside native Herdr children, plus a checklist button that expands each OMP terminal's task list. Tasks are compact one-line rows with L-shaped connectors and status icons; hover reveals the complete task content. The bundle also registers a native OMP choice in the existing Start an agent menu and supplies OMP's official full-color icon. It contains two runtime components, a Herdr UI mod and an OMP observation extension, plus client-side launcher/icon configuration. It does not replace OMP's delegation or create substitute subagent terminals.
 
 ![OMP agents for Herdr](preview.png)
 
@@ -8,6 +8,7 @@ A Herdr Agents sidebar that shows OMP's own subagents beside native Herdr childr
 
 - Retain the existing Agents sidebar: theme `chrome`, 13px base text, priority/space/folder sorting, pinned agents, collapsible groups, and native child terminal rows. Reuse the person's existing Agents block, not a replacement window layout.
 - Main agent rows remain 30px high, with the program icon, agent/space detail, optional remote machine label, status, and existing pin/fold controls.
+- An installed OMP choice appears in the existing Start an agent menu with the official gradient pi icon. Preserve the menu's row sizing and ordering; the shipped/current menu uses a 14px program icon. Herdr's program registry also supplies this icon to OMP tabs, pane headers, and root Agents rows. Keep its pink/purple/cyan gradient and dark rounded-square background; do not tint it to a single theme color.
 - OMP child rows share the existing tree appearance: 26px high, 12.5px text, muted child name, connector lines, and a small outcome at the right. A live running child has a native rotating ring. Its tooltip includes its task and model. Each owning terminal has a separate child namespace, including OMP children beneath a native hc child terminal.
 - Each OMP terminal row has a persistent 22px checklist button with a 15px icon. Opening it inserts its task list below its children, without a `TODO` separator or extra status line per task.
 - Phase names use 11.5px semibold text and align with the parent agent icon. Each task is a 26px-high single line. An L-shaped connector starts at the phase label's left edge, is 7px wide and 13px high, and leaves 4px before the text. Long content truncates with an ellipsis. Its status icon stays at the right; completed content is struck through. The tooltip contains only the full task content.
@@ -16,6 +17,7 @@ A Herdr Agents sidebar that shows OMP's own subagents beside native Herdr childr
 
 ## How it behaves
 
+- Clicking OMP in the existing Start an agent menu creates a normal OMP terminal in the selected space on its owning machine. It uses the registered command and the person's OMP configuration, not a synthetic child, a bundled model, or a pinned author profile. Availability and numeric shortcuts follow the existing menu's installed-agent detection/order. A missing OMP executable is not fixed by the icon or the observation extension.
 - Root statuses follow Herdr: working is a 12px rotating ring in the theme's working color; blocked is a themed `!` badge in compact/priority rows or `Needs you` pill otherwise; done is a filled 7px dot; idle is a 7px outlined ring. Priority order is blocked, done, working, idle. Keep a viewed Done row in its section until focus leaves, rather than moving it under the pointer.
 - Clicking a root focuses its pane. Hover highlights it and replaces its elapsed-state duration with a pin button; clicking the pin stops propagation and moves the row into/out of the top Pinned section. Clicking a child fold chevron or a root's program icon folds only its child tree; clicking a section header folds that section. Preserve the child count and urgency indicator while folded.
 - The 41px Agents header has a sort button opening a 200×171px popup with Priority, Grouped by space, and Grouped by folder choices. Choosing one updates shared sort state and closes the popup. Group headers are 30px high. The scrolling list fills the remaining height.
@@ -38,6 +40,9 @@ README.md
 preview.png
 NOTICE
 LICENSE-APACHE
+LICENSE-OMP
+programs.json
+my-icons/omp.svg
 extension/index.ts
 extension/state.ts
 extension/transport.ts
@@ -62,23 +67,45 @@ The checked-in files are one build of this brief, not prerequisites for rebuildi
 - Wire version 1 includes local `terminalId`, `pid`, root `sessionId`, `rootAgentId`, epoch-ms `updatedAt`, `closed`, observed `children`, and task `todos`. Child rows carry `id`, `parentId`, agent type, task summary, outcome, model, and update time. TODOs preserve `{ name, tasks: [{ content, status, blocker? }] }`.
 - The Herdr reader finds `terminals()[i].labels["omp.observer"]` and reads that path through `readTextFile(path, { on: machine })`. Strip the `machine/` prefix only for checking the snapshot's local terminal ID. Poll every 1500ms with no overlapping read pass, ignore late reads from replaced publishers, and reject malformed, cross-terminal, disconnected, or cyclic trees. Keep heartbeats at 10 seconds and mark data stale after 35 seconds.
 
-### Install both components
+### Native launcher and official artwork
+
+The root `programs.json` is a minimal merge snippet, not a copy of anyone's complete configuration:
+
+```json
+{
+  "programs": {
+    "omp": {
+      "name": "OMP",
+      "icon": "my-icons/omp.svg",
+      "tint": false,
+      "run": ["omp"]
+    }
+  }
+}
+```
+
+Herdr's `knownAgents({ on: machine })` uses the `run` entry for availability and launching. Reuse the existing plus menu; neither a replacement tab bar nor a special launcher mod is required. Do not hard-code a five-agent list or a permanent numeric shortcut. If a personal menu does not use `knownAgents`, adapt only its agent listing using the installed Herdr API, preserving its other actions; clone a shipped menu before editing it.
+
+`my-icons/omp.svg` is the unchanged official favicon from `can1357/oh-my-pi`, `packages/collab-web/public/favicon.svg`, also served at https://omp.sh/favicon.svg. It uses a 64×64 viewBox, dark `#0f0a14` rounded square, and `#ed4abf`, `#9b4dff`, `#5ad8e6` gradient. Draw it as the program's full-color image (`tint: false`). Preserve the upstream MIT license in `LICENSE-OMP` and the source credit in `NOTICE`; the existing Apache notice does not replace that license.
+
+### Install components, launcher, and icon
 
 First read the running client's generated Herdr `AGENTS.md` and type files, plus this recipe and the relevant source files. Inspect the current layout and OMP profile; do not assume the author's personal layout name, paths, machine aliases, or terminal addresses.
 
-Before installing, explain that the extension runs `hc label` and writes private local snapshots outside its code folder. The mod reads those linked files locally or through Herdr's existing remote connection. There is no added HTTP listener, cloud endpoint, or telemetry service. Snapshot content can contain task text and model names and must not be published.
+Before installing, explain that the extension runs `hc label` and writes private local snapshots outside its code folder. The mod reads those linked files locally or through Herdr's existing remote connection. Choosing the bundled launcher starts the real `omp` executable on the selected space's machine. The bundled icon is local; no runtime icon download, added HTTP listener, cloud endpoint, or telemetry service is used. Snapshot content can contain task text and model names and must not be published.
 
 1. **Identify the two installation targets.** The client is the computer running the Herdr window. The execution host is where the observed OMP process runs. They may be the same computer.
-2. **Install the UI on each viewing client.** Copy `mods/omp-agents/` into that client's Herdr app home's `mods/` directory (default `~/.config/herdr-app/mods/omp-agents`). Include `NOTICE` and `LICENSE-APACHE` with the installed mod. Do not install the UI only on a remote execution host that has no viewing Herdr window.
+2. **Install the UI on each viewing client.** Copy `mods/omp-agents/` into that client's Herdr app home's `mods/` directory (default `~/.config/herdr-app/mods/omp-agents`). Include `NOTICE`, `LICENSE-APACHE`, and `LICENSE-OMP` with the installed bundle. Do not install the UI only on a remote execution host that has no viewing Herdr window.
 3. **Install the extension on each execution host.** In the active OMP profile's `extensions/` directory, create a `herdr-observer/` folder containing the three production extension files. The default location is `~/.omp/agent/extensions/herdr-observer/`; named profiles, `PI_CODING_AGENT_DIR`, and initialized XDG layouts can change the actual location. Alternatively link that folder to a persistent checkout's `extension/` directory on the same machine. Never link to a disposable download directory or a path that exists only on the client.
 4. **Respect collisions.** Never silently overwrite a person's existing mod or extension. If an unrelated `omp-agents` mod owns the name, choose a new folder name and rewrite the mod's `MOD` value, its own `mods/omp-agents/` asset paths, and the layout reference. For an extension-name collision, choose a free extension folder name. An update of this package must leave exactly one active copy of the observation extension; two copies would both publish the same terminal snapshot. Preserve user edits or ask before replacing them.
 5. **Connect the client's sidebar.** Use `herdr-app status` to identify the selected layout. If it is shipped/read-only, clone it through `layout.clone` first so Herdr preserves its click/look state. In that personal layout, replace only the existing Agents block's `content.mod` with `omp-agents` (or the selected collision-free name). Keep block IDs, sizes, placement, frame, appearance, keys, spaces, and unrelated panels. Do not require `space-groups`, `space-groups-agents`, `auto-tabs`, or a particular personal theme. Do not copy the author's layout, `shared.json`, `data/`, `view.json`, or `layouts/.state/`.
-6. **Activate safely.** Run `herdr-app check <installed-mod-directory>`, then inspect the actual window and `herdr-app status`. Fresh ordinary OMP sessions discover the extension. Existing sessions need `/reload` or a restart, performed only when safe for their ongoing work. Explicit `--no-extensions` launches need an explicit `-e <extension/index.ts>` path. Do not restart the user's core or kill agents to activate this package.
-7. **Verify data, not just installation.** On the execution host, confirm that an OMP launched by that machine's core has `HC_TERMINAL_ID`, that `hc` is available, that its `omp.observer` label points to a readable private snapshot, and that the snapshot matches that local terminal ID. Spawn a small read-only native OMP child and observe its real lifecycle in the sidebar. Open/close Tasks, confirm long-content tooltips and completion icons, and preserve native child rows. Do not fabricate snapshot entries or substitute a new hc agent for this check.
+6. **Merge the client's launcher and icon.** Copy the bundled artwork to that client's app home at `my-icons/omp.svg`, outside Herdr's rewritten shipped `icons/` folder. If that path contains unrelated artwork, choose a free custom path and update only `programs.omp.icon` accordingly; identical existing artwork can be reused. Merge the `omp` program entry into the existing `programs.json`, or create it from the snippet if absent. Preserve every other program, shells, interpreters, unknown top-level keys, and deliberately customized valid OMP name/run/profile arguments. Add missing default launcher fields; use the official icon path and `tint: false`. Never replace an entire existing file with this snippet or discard an invalid file to hide a parse error. Check the installed schema and report/resolve actual conflicts rather than guessing the person's intent.
+7. **Activate safely.** Run `herdr-app check <installed-mod-directory>`, then inspect the actual window and `herdr-app status`, including program-registration errors. Fresh ordinary OMP sessions discover the extension. Existing sessions need `/reload` or a restart, performed only when safe for their ongoing work. Explicit `--no-extensions` launches need an explicit `-e <extension/index.ts>` path. Do not restart the user's core or kill agents to activate this package.
+8. **Verify data and launch behavior, not just installation.** Confirm OMP is detected on the selected execution machine, open the actual Start an agent menu, and launch a disposable normal OMP session without sending a model prompt. Observe its ready UI and full-color program icon; do not infer success from a parsed JSON file alone. On the execution host, confirm that an OMP launched by that machine's core has `HC_TERMINAL_ID`, that `hc` is available, that its `omp.observer` label points to a readable private snapshot, and that the snapshot matches that local terminal ID. For the observation component, spawn a small read-only native OMP child and observe its real lifecycle in the sidebar. Open/close Tasks, confirm long-content tooltips and completion icons, and preserve native child rows. Do not fabricate snapshot entries or substitute a new hc agent for this check.
 
 ### Remote installation boundary
 
-For a named remote machine connected through Herdr, the **client needs Herdr and this UI mod, not OMP**. The **host needs herdr-core, OMP, and this extension**. Labels and snapshot reads travel through the existing Herdr machine connection; no snapshot syncing or extra tunnel is needed by this design.
+For a named remote machine connected through Herdr, the **client needs Herdr, this UI mod, and the launcher/icon configuration, not an OMP binary**. The **host needs herdr-core, OMP, and this extension**. Launcher availability is checked on the selected machine; `run: ["omp"]` launches there through Herdr's normal route. Labels and snapshot reads travel through the existing Herdr machine connection; no snapshot syncing or extra tunnel is needed by this design.
 
 If an installer agent runs only on the execution host, it cannot assume it can modify the client's files. Install the host component and provide the client-side recipe step, or use an explicitly available connection to the client. Do not claim both sides installed until both are verified. Never install Herdr UI files into a guessed remote home as a substitute.
 
@@ -87,21 +114,23 @@ Typing `ssh host` inside a local shell is not equivalent to starting an OMP term
 ## Watch out
 
 - Verified locally on macOS with **Herdr 0.1.12** and **OMP 18.16.0**. The cross-machine reader is implemented, but a second-machine SSH installation has **not** been exercised end-to-end. Validate it on the intended host/client before calling that installation verified. The current reader expects POSIX absolute snapshot paths; do not claim Windows execution-host support.
+- The default launcher is a relative `omp` command, so it follows the selected execution host's supported shell/PATH and ordinary OMP configuration. Preserve intentional custom launcher/profile arguments. Aliases are not a substitute for a command Herdr can launch. Installed-agent checks may be cached for up to a minute; open a fresh menu and verify the actual host instead of clearing private shared state or adding a fake always-installed menu row.
+- `programs.json` is only a merge snippet. A full-file replacement can erase the person's unrelated registrations and shell/interpreter settings. Keep the icon in a custom app-home folder and retain `tint: false`; a tinted SVG loses the official gradient. Do not force-install auto-tabs, a Zed menu, or a new layout to obtain this launcher.
 - `space-groups` is optional shared-data integration, not a code dependency. The original `space-groups-agents` mod is unnecessary. Preserve its Apache-2.0 ancestry and modifications in `NOTICE`/`LICENSE-APACHE`.
 - The extension is inert without `HC_TERMINAL_ID`. Keep core terminal IDs distinct from names, session IDs, and remote `machine/terminal` addresses.
 - `pi.events` is scoped to its binding. A main-only listener is not a tree-wide guarantee; keep inherited child listeners and direct parent identities. Do not infer task completion from `agent_end`, or infer failure merely because a retained session is idle/closed.
 - Canonical TODO restoration scans the active transcript branch, ignoring failed or pure-view mutations. Manual/eval changes may need the managed 1500ms branch scan. Never replace source task states with UI guesses.
 - `No Task Yet` intentionally covers both empty and unavailable data. Diagnose a missing label, profile mismatch, disabled extension, stale file, or remote read failure through the actual host state, not by assuming every empty UI means OMP has no tasks.
 - GPUI has no DOM, HTML/CSS, Node UI APIs, or browser event loop. Use the installed generated types, managed tasks/timers, current theme colors, native `.spin(900)`, and content tooltips. Never retain a callback's `cx` for later unrelated work.
-- The reader handles files up to Herdr's `readTextFile` limit (1 MiB). Do not publish session artifacts, cache snapshots, tokens, machine lists, generated editor/type files, or user task data. The preview must be a crop of a real safe demo's sidebar, not a screenshot of a personal workspace.
+- The reader handles files up to Herdr's `readTextFile` limit (1 MiB). Do not publish session artifacts, cache snapshots, tokens, machine lists, generated editor/type files, or user task data. The preview must be a crop of a real safe demo; this bundle's current preview shows its native launcher and official icon, not a personal workspace.
 - Read-only means no task edits, steering, cancellation, terminal attachment for virtual children, or promise of child events from before extension activation. Do not add those features while following this recipe.
 
 ## Done when
 
-1. `bun test` passes and `herdr-app check <installed-mod>` passes; the selected personal layout shows the mod without runtime errors.
+1. `bun test` and `herdr-app check <installed-mod>` pass, and the selected personal layout shows the mod without runtime errors. The bundled entry is safely merged without losing unrelated registrations; the official SVG and its MIT notice are present. A real click on OMP in Start an agent opens the ready OMP UI on the intended local machine, with the official full-color icon. Do not claim a remote launch was exercised without a second machine.
 2. A native OMP subagent appears beneath its owning terminal, can update from running to a real terminal outcome, and stays distinct from native hc children. Split/client terminal IDs do not cross-contaminate snapshots.
 3. The checklist opens task phases and compact L-connected task rows; clicking it again hides only Tasks. Content truncates, the complete content appears on hover without a status suffix, completed text is struck through, and the other four native states remain distinct. Empty/missing data reads `No Task Yet`.
 4. A successful task mutation updates the list; a failed/view call does not corrupt it. Session changes reset observed children and restore the new branch's tasks. Child shutdown does not close the root snapshot; stale/closed data never looks actively running.
 5. Existing sorting, grouping, pins, native child actions, and unrelated layout/keys survive. No mandatory installation of third-party grouping mods was introduced.
 6. For a remote installation, confirm the client UI and the host extension separately and exercise the named Herdr machine route. If the second machine is unavailable, report remote verification as outstanding rather than claiming it passed.
-7. The public package has its source, recipe, actual safe `preview.png`, tests, and license attribution. Its repository has topic `herdr-mod`. No personal configuration, session history, snapshot, secret, or author-machine path is included.
+7. The public package has its source, minimal launcher snippet, official icon, recipe, actual safe `preview.png`, tests, and both license attributions. Its repository has topic `herdr-mod`. No personal configuration, session history, snapshot, secret, or author-machine path is included.

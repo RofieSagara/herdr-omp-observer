@@ -7,3 +7,12 @@ The space-groups-agents adaptation added the Grouped by folder sort using
 space groups. This adaptation adds read-only native OMP child observations,
 per-parent TODO expansion, and snapshot freshness handling while retaining
 the original native child tree, grouping, pinning, and navigation behavior.
+
+my-icons/omp.svg is the unchanged official OMP favicon from
+https://github.com/can1357/oh-my-pi/blob/main/packages/collab-web/public/favicon.svg
+(also served at https://omp.sh/favicon.svg).
+Its upstream MIT license and copyright notice are preserved in LICENSE-OMP.
+The icon identifies OMP; no affiliation or endorsement is implied.
+
+programs.json is a minimal OMP launcher/icon merge snippet, not a complete
+personal Herdr configuration.

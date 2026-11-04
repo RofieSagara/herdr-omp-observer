@@ -1,8 +1,8 @@
 # OMP agents for Herdr
 
-Read-only native OMP subagents and Tasks in Herdr's Agents sidebar. OMP owns execution; this integration does not create substitute hc agents, send instructions, cancel work, or edit tasks.
+Read-only native OMP subagents and Tasks in Herdr's Agents sidebar, plus a native OMP launcher and official program icon. OMP owns execution; observation does not create substitute subagents, steer or cancel their work, or edit tasks. The launcher starts an ordinary OMP terminal through Herdr.
 
-![OMP agents for Herdr](preview.png)
+![Native OMP launcher with the official icon](preview.png)
 
 ## Install
 
@@ -11,7 +11,7 @@ Give your coding agent this request:
 ```text
 Read my Herdr app home's AGENTS.md, then install this integration:
 https://github.com/RofieSagara/herdr-omp-observer/blob/main/RECIPE.md
-Install both the Herdr sidebar mod and the OMP observation extension.
+Install the Herdr sidebar mod, the OMP observation extension, and the bundled launcher/icon configuration.
 Preserve my existing layout and settings.
 ```
 
@@ -20,13 +20,22 @@ Preserve my existing layout and settings.
 | Component | Install on |
 | --- | --- |
 | `mods/omp-agents/` | Each computer running a viewing Herdr window |
+| `programs.json` merge snippet and `my-icons/omp.svg` | Each viewing Herdr client, preserving its existing configuration |
 | `extension/` | Each execution host running the observed OMP profile |
 
-For a local setup both components live on the same computer. For a named remote machine connected through Herdr, the client does not need OMP; it only needs the UI mod. Installing on a host alone cannot configure an inaccessible client.
+For a local setup both runtime components live on the same computer. For a named remote machine connected through Herdr, the client needs the UI mod and launcher/icon configuration, not an OMP binary. The selected execution host needs OMP; Herdr checks and launches the registered command there. Installing on a host alone cannot configure an inaccessible client.
 
 The OMP extension's default discovery location is `~/.omp/agent/extensions/herdr-observer/`; keep its three production files together. Profile/environment overrides can change that path. The UI belongs under the Herdr app home's `mods/` directory. `space-groups-agents` is not required; `space-groups` folder integration is optional.
 
 Existing OMP sessions need `/reload` or a safe restart; fresh normal sessions discover the extension. Explicit `--no-extensions` launches need an explicit `-e` path. The extension is inert without a host-side `HC_TERMINAL_ID`. Plain `ssh host` typed inside a local terminal is not the named Herdr remote-machine path.
+
+## Native launcher and icon
+
+The bundled [programs.json](programs.json) adds the `omp` registration with default name `OMP`, `run: ["omp"]`, and the full-color [official SVG](my-icons/omp.svg). Merge that one entry; never overwrite a person's entire configuration. Preserve other programs, shell/interpreter settings, and intentional custom OMP launcher/profile arguments. See the recipe for icon-path collisions and safe merge rules.
+
+Open **+ → Start an agent → OMP**. Detection, ordering, shortcuts, and launch location follow Herdr's existing menu; no custom tab bar or replacement menu is required. The same program registration supplies icons to OMP tabs, pane headers, and root Agents rows. OMP's own configuration still selects its model and credentials.
+
+The unchanged artwork comes from [OMP's official repository](https://github.com/can1357/oh-my-pi/blob/main/packages/collab-web/public/favicon.svg), also served at [omp.sh/favicon.svg](https://omp.sh/favicon.svg). Keep `tint: false` to preserve the gradient. Its upstream MIT notice is included in [LICENSE-OMP](LICENSE-OMP).
 
 ## UI
 
@@ -63,6 +72,8 @@ herdr-app check ~/.config/herdr-app/mods/omp-agents
 
 Verified with OMP 18.16.0: real native scout execution, live TODO completion/auto-start transitions, mixed hc/OMP child rows, actual TODO icon clicks open/closed, completed strikethrough and all five TODO states, private file mode, graceful closed snapshot, and no Herdr runtime errors. Nested lineage, late lifecycle precedence, wrong-terminal/cyclic snapshot rejection, stale renewal, and changed-publisher async read isolation have behavior-level regression coverage.
 
+The bundled native launcher and official icon were also exercised through the actual Start an agent menu: a ready OMP 18.16.0 session opened with the icon in the menu, tab, and pane header, without sending a model prompt. This local launcher smoke does not change the unverified second-machine remote boundary.
+
 ## Attribution
 
-The sidebar retains the existing space-group sorting and native Agents behavior. Its upstream ancestry is documented in `NOTICE` and covered by `LICENSE-APACHE`.
+The sidebar retains the existing space-group sorting and native Agents behavior. Its upstream ancestry is documented in `NOTICE` and covered by `LICENSE-APACHE`. The official OMP artwork retains its separate upstream MIT license in `LICENSE-OMP`.
