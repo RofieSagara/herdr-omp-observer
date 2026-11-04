@@ -71,6 +71,31 @@ function fingerprint(entry) {
   return JSON.stringify([entry.state, s && [s.sessionId, s.rootAgentId, s.children, s.todos]]);
 }
 
+// Presentation history belongs to one publisher/session; wire data stays intact.
+function visibleSnapshot(entry, snapshot) {
+  if (!snapshot) return null;
+  let history = entry.childHistory;
+  if (!history || history.sessionId !== snapshot.sessionId || history.rootAgentId !== snapshot.rootAgentId) {
+    history = { sessionId: snapshot.sessionId, rootAgentId: snapshot.rootAgentId, seen: new Set(), hidden: new Set() };
+    entry.childHistory = history;
+  }
+  const arrived = history.seen.size > 0 && snapshot.children.some(child => !history.seen.has(child.id));
+  for (const child of snapshot.children) {
+    if (child.status !== "completed") history.hidden.delete(child.id);
+    else if (arrived && history.seen.has(child.id)) history.hidden.add(child.id);
+  }
+  for (const child of snapshot.children) history.seen.add(child.id);
+  if (history.hidden.size === 0) return snapshot;
+  const parents = new Map(snapshot.children.map(child => [child.id, child.parentId]));
+  const children = snapshot.children.filter(child => !history.hidden.has(child.id)).map(child => {
+    // A completed ancestor must not take its still-running descendants with it.
+    let parentId = child.parentId;
+    while (history.hidden.has(parentId)) parentId = parents.get(parentId);
+    return parentId === child.parentId ? child : { ...child, parentId };
+  });
+  return { ...snapshot, children };
+}
+
 export class ObserverReader {
   constructor(readFile, getTerminals, clock = Date.now) {
     this.readFile = readFile;
@@ -90,7 +115,7 @@ export class ObserverReader {
     for (const source of sources) {
       let entry = this.entries.get(source.address);
       if (!entry || entry.source.path !== source.path || entry.source.on !== source.on || entry.source.live !== source.live) {
-        entry = { source, snapshot: null, state: "unavailable" };
+        entry = { source, snapshot: null, visibleSnapshot: null, state: "unavailable" };
         this.entries.set(source.address, entry);
         changed = true;
       }
@@ -101,7 +126,7 @@ export class ObserverReader {
   }
 
   get(address) {
-    return this.entries.get(address) ?? { snapshot: null, state: "unavailable" };
+    return this.entries.get(address) ?? { snapshot: null, visibleSnapshot: null, state: "unavailable" };
   }
 
   async poll() {
@@ -125,6 +150,7 @@ export class ObserverReader {
         if (this.entries.get(address) !== entry) continue;
         const before = fingerprint(entry);
         entry.snapshot = snapshot;
+        entry.visibleSnapshot = visibleSnapshot(entry, snapshot);
         entry.state = stateOf(snapshot, entry.source.live, this.clock());
         changed = before !== fingerprint(entry) || changed;
       }

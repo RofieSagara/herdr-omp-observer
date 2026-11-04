@@ -2,7 +2,7 @@
 
 Read-only native OMP subagents and Tasks in Herdr's Agents sidebar, plus a native OMP launcher and official program icon. OMP owns execution; observation does not create substitute subagents, steer or cancel their work, or edit tasks. The launcher starts an ordinary OMP terminal through Herdr.
 
-![Native OMP launcher with the official icon](preview.png)
+![Grouped child agents and task-phase dropdowns](preview.png)
 
 ## Install
 
@@ -39,9 +39,13 @@ The unchanged artwork comes from [OMP's official repository](https://github.com/
 
 ## UI
 
-Native hc children and observed OMP children share the existing tree layout. Native terminal rows keep their normal click actions; OMP-internal child rows are read-only and show task/model information in their tooltip. Completed, failed, and aborted OMP outcomes are retained for the current observed session. A completed child does not move its still-working parent into Done.
+Native hc children and observed OMP children share a flat **Child agents** section, with the same title-plus-status-icon rows aligned to the owning agent's icon. There are no tree connectors or visible outcome words. Native terminal rows retain their click-to-peek action; OMP-internal rows remain read-only and show task/model/outcome information in tooltips. Completed OMP children stay visible until a previously unseen child arrives in the same observed session, then older completed entries are hidden. Results first observed in the new batch stay until a later arrival. Failed, aborted, idle, and running children remain visible, including active descendants of hidden completed ancestors. Completed children never promote a working parent into Done.
 
-Each OMP parent has a checklist icon. Click it to expand TODOs below its children; click again to hide only TODO. There is no TODO separator. Phase names align with the parent agent icon. Each task has an L-shaped connector aligned with the start of its phase name, with compact spacing before its text. Each task occupies one line, truncates with an ellipsis, and has its status icon at the right. Hovering reveals only the full task content, without status or blocker notes. Screen-reader labels retain status information. The list preserves all five native states:
+Cleanup affects only the child-list projection, never the source snapshot, TODOs, or running terminals. Hidden results stay hidden across ordinary heartbeat and temporary read failures. A resumed child becomes visible again. Visibility history is local to the reader: a different publisher/root session or reloading the mod starts a fresh baseline, and the next new child clears that baseline's completed entries.
+
+One disclosure beside each root agent toggles **child agents and tasks together**, expanded by default. Clicking the root program icon performs the same combined toggle; the separate checklist/TODO button has been removed. Inside the details, **Child agents** and every named task phase, such as **Preview video**, form separate rounded, bordered cards containing both the dropdown header and its expanded list. Spacing separates cards from the agent row and from one another; a thin divider separates the header from its padded contents. The header has a subtle surface background, title on the left, and one expand/collapse chevron on the right, without an activity/outcome icon. Status icons remain on child/task rows. Folding a child section leaves tasks visible, folding a phase leaves other sections visible, and a root hide/show round trip preserves those inner choices.
+
+Child rows and one-line task rows start at the same left edge as the root program icon, without L-shaped connectors. Long text truncates, status icons remain at the right, and completed task text is struck through. Task hover reveals only the full task content; accessible labels retain status and blocker details. Task phases preserve all five native states:
 
 Empty or unavailable TODO data displays `No Task Yet`, including phases with no tasks.
 
@@ -70,7 +74,11 @@ bun test
 herdr-app check ~/.config/herdr-app/mods/omp-agents
 ```
 
-Verified with OMP 18.16.0: real native scout execution, live TODO completion/auto-start transitions, mixed hc/OMP child rows, actual TODO icon clicks open/closed, completed strikethrough and all five TODO states, private file mode, graceful closed snapshot, and no Herdr runtime errors. Nested lineage, late lifecycle precedence, wrong-terminal/cyclic snapshot rejection, stale renewal, and changed-publisher async read isolation have behavior-level regression coverage.
+The original observation bridge was verified with OMP 18.16.0: real native scout execution, live TODO completion/auto-start transitions, mixed hc/OMP child rows, completed strikethrough and all five TODO states, private file mode, graceful closed snapshot, and no Herdr runtime errors. Nested lineage, late lifecycle precedence, wrong-terminal/cyclic snapshot rejection, stale renewal, and changed-publisher async read isolation have behavior-level regression coverage.
+
+Completed-list cleanup has regression coverage for batched arrival/completion, heartbeat retention, nested active descendants, resumed children, session reset, missing snapshots, and terminal isolation. A disposable observer publisher was also exercised through the installed Herdr sidebar; this smoke did not launch or cancel native OMP work.
+
+The redesigned details have interaction coverage using the real view's render descriptions and disclosure callbacks: combined root toggling, independent Child agents/task-phase folding, retained inner choices, native/OMP running-to-completed icons, stale-data non-animation, task-only roots, and nested OMP task owners. The installed native surface was also visually inspected; these callback tests do not claim pointer automation of the live window.
 
 The bundled native launcher and official icon were also exercised through the actual Start an agent menu: a ready OMP 18.16.0 session opened with the icon in the menu, tab, and pane header, without sending a model prompt. This local launcher smoke does not change the unverified second-machine remote boundary.
 

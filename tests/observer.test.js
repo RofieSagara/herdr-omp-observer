@@ -5,6 +5,18 @@ const child = (id, parentId = "Main", status = "running") => ({ id, parentId, ag
 const snapshot = (changes = {}) => ({ version: 1, terminalId: "t7", pid: 42, sessionId: "session-a", rootAgentId: "Main", updatedAt: 1000, closed: false, children: [], todos: [], ...changes });
 const terminal = (path = "/cache/a.json") => ({ address: "t7", state: "live", labels: { "omp.observer": path } });
 
+function observing(children) {
+  let value = snapshot({ children });
+  const reader = new ObserverReader(async () => value === null ? null : JSON.stringify(value), () => [terminal()], () => 1000);
+  return {
+    reader,
+    update: async (changes = {}) => { value = { ...(value ?? snapshot()), ...changes }; await reader.poll(); },
+    missing: async () => { value = null; await reader.poll(); },
+    rows: () => observerTree(reader.get("t7").visibleSnapshot),
+    ids: () => observerTree(reader.get("t7").visibleSnapshot).map(row => row.child.id),
+  };
+}
+
 describe("observer snapshot boundaries", () => {
   test("rejects another terminal's snapshot and invalid lineage", () => {
     expect(parseSnapshot(JSON.stringify(snapshot({ terminalId: "t8" })), "t7")).toBeNull();
@@ -55,5 +67,88 @@ describe("observer snapshot boundaries", () => {
     await reader.poll();
     expect(reader.get("t7").state).toBe("closed");
     expect(reader.get("t7").snapshot.children[0].id).toBe("a");
+  });
+});
+
+describe("completed child visibility", () => {
+  test("keeps the latest outcomes until a new child arrives, without heartbeat resurrection", async () => {
+    const view = observing([child("old")]);
+    await view.update();
+    await view.update({ children: [child("old", "Main", "completed")] });
+    expect(view.ids()).toEqual(["old"]);
+    await view.update({ children: [child("old", "Main", "completed"), child("new")] });
+    expect(view.ids()).toEqual(["new"]);
+    await view.update({ updatedAt: 1100, children: [child("old", "Main", "completed"), child("new", "Main", "completed")] });
+    expect(view.ids()).toEqual(["new"]);
+    await view.update({ updatedAt: 1200 });
+    expect(view.ids()).toEqual(["new"]);
+    await view.update({ children: [child("old", "Main", "completed"), child("new", "Main", "completed"), child("next")] });
+    expect(view.ids()).toEqual(["next"]);
+    expect(view.reader.get("t7").snapshot.children.map(item => item.id)).toEqual(["old", "new", "next"]);
+  });
+
+  test("handles completion and arrival in the same poll, preserving newly observed completed children", async () => {
+    const view = observing([child("old")]);
+    await view.update();
+    await view.update({ children: [child("old", "Main", "completed"), child("quick", "Main", "completed")] });
+    expect(view.ids()).toEqual(["quick"]);
+    await view.update();
+    expect(view.ids()).toEqual(["quick"]);
+  });
+
+  test("keeps running, idle, failed and aborted children when clearing completed ones", async () => {
+    const retained = [child("active"), child("idle", "Main", "idle"), child("failure", "Main", "failed"), child("cancelled", "Main", "aborted")];
+    const view = observing([child("finished", "Main", "completed"), ...retained]);
+    await view.update();
+    await view.update({ children: [child("finished", "Main", "completed"), ...retained, child("incoming")] });
+    expect(view.ids()).toEqual(["active", "idle", "failure", "cancelled", "incoming"]);
+  });
+
+  test("promotes live descendants past hidden completed ancestors without editing the canonical tree or TODOs", async () => {
+    const children = [child("parent", "Main", "completed"), child("nested", "parent", "completed"), child("active", "nested")];
+    const todos = [{ name: "Build", tasks: [{ content: "Keep outcome", status: "completed" }] }];
+    const view = observing(children);
+    await view.update({ todos });
+    await view.update({ children: [...children, child("incoming")] });
+    expect(view.rows().map(row => [row.child.id, row.child.parentId, row.lines])).toEqual([
+      ["active", "Main", ["├"]], ["incoming", "Main", ["└"]],
+    ]);
+    expect(view.reader.get("t7").snapshot.children).toEqual([...children, child("incoming")]);
+    expect(view.reader.get("t7").snapshot.todos).toEqual(todos);
+  });
+
+  test("resets history on a new session and lets a resumed child show its next result", async () => {
+    const view = observing([child("old", "Main", "completed")]);
+    await view.update();
+    await view.update({ children: [child("old", "Main", "completed"), child("new")] });
+    expect(view.ids()).toEqual(["new"]);
+    await view.update({ children: [child("old"), child("new")] });
+    expect(view.ids()).toEqual(["old", "new"]);
+    await view.update({ children: [child("old", "Main", "completed"), child("new")] });
+    expect(view.ids()).toEqual(["old", "new"]);
+    await view.update({ sessionId: "session-b", children: [child("old", "Main", "completed")] });
+    expect(view.ids()).toEqual(["old"]);
+  });
+
+  test("retains cleanup history over a missing snapshot", async () => {
+    const view = observing([child("old", "Main", "completed")]);
+    await view.update();
+    await view.update({ children: [child("old", "Main", "completed"), child("new")] });
+    await view.missing();
+    expect(view.ids()).toEqual([]);
+    await view.update({ children: [child("old", "Main", "completed"), child("new")] });
+    expect(view.ids()).toEqual(["new"]);
+  });
+
+  test("a new child in one terminal cannot clear another terminal's completed outcomes", async () => {
+    let first = snapshot({ children: [child("a", "Main", "completed")] });
+    const second = snapshot({ terminalId: "t8", children: [child("b", "Main", "completed")] });
+    const reader = new ObserverReader(async path => JSON.stringify(path === "/cache/a.json" ? first : second),
+      () => [terminal(), { ...terminal("/cache/b.json"), address: "t8" }], () => 1000);
+    await reader.poll();
+    first = { ...first, children: [...first.children, child("new")] };
+    await reader.poll();
+    expect(observerTree(reader.get("t7").visibleSnapshot).map(row => row.child.id)).toEqual(["new"]);
+    expect(observerTree(reader.get("t8").visibleSnapshot).map(row => row.child.id)).toEqual(["b"]);
   });
 });

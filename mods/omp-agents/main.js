@@ -1,5 +1,5 @@
 // Adapted from Herdr's agents and herdr-space-groups' grouped sidebar.
-// Modified to display native OMP children and a read-only TODO toggle.
+// Native/OMP child agents and task phases share default-expanded detail sections.
 // Attribution and license: NOTICE and LICENSE-APACHE.
 // Agents in grouped, folder or priority views; parents take their most urgent sub-agent's place.
 // A viewed done agent stays in Done until left.
@@ -82,6 +82,7 @@ const kidStatus = (k, listed) => {
 const ompRoot = (a, terminal) => Boolean(terminal?.labels?.["omp.observer"]) || a.app === "omp" || a.report?.app === "omp" || a.program?.key === "omp";
 // Completed OMP work is retained, but never promotes its working parent to Done.
 const ompStatus = (child) => child.status === "running" ? "working" : child.status === "failed" ? "blocked" : "idle";
+
 const SORTS = [
   { id: "priority", label: "Priority", icon: "clock" },
   { id: "grouped", label: "Grouped by space", icon: "layers" },
@@ -109,7 +110,6 @@ export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
     this.folded = new Set();
-    this.todoOpen = new Set();
     this.observer = new ObserverReader(readTextFile, terminals);
     cx.spawn(async (cx) => { if (await this.observer.poll()) cx.notify(); });
     cx.timer.every(POLL_MS, async (cx) => { if (await this.observer.poll()) cx.notify(); });
@@ -201,132 +201,127 @@ export default class Agents extends View {
 
   // Native terminals keep their real addresses. Each terminal's OMP namespace
   // contributes children beneath that terminal, including native hc descendants.
-  tree(all, addr, lead = [], seen = new Set()) {
+  tree(all, addr, seen = new Set()) {
     if (seen.has(addr)) return [];
     seen.add(addr);
     const observation = this.observer.get(addr);
-    const omp = observerTree(observation.snapshot, lead).map(row => ({ ...row, owner: addr, state: observation.state }));
+    const omp = observerTree(observation.visibleSnapshot).map(({ child }) => ({ child, owner: addr, state: observation.state }));
     const kids = all.filter(k => k.parent === addr && k.state === "live" && !seen.has(k.address));
-    return [...kids.flatMap((k, i) => {
-      const last = i === kids.length - 1 && omp.length === 0;
-      return [
-        { t: k, lines: [...lead, last ? "└" : "├"] },
-        ...this.tree(all, k.address, [...lead, last ? "" : "│"], seen),
-        ...(ompRoot(k, k) ? [{ footer: k.address }] : []),
-      ];
-    }), ...omp];
+    return [...kids.flatMap(k => [
+      { t: k },
+      ...this.tree(all, k.address, seen),
+      ...(ompRoot(k, k) ? [{ footer: k.address }] : []),
+    ]), ...omp];
   }
 
-  subRow(t, s, shown, compact) {
-    const k = s.t;
-    const st = kidStatus(k, this.listed);
-    const pic = icon(k.program, 14, t.foreground);
-    const on = k.address === shown;
-    return h_flex()
-      .id(`sub-${k.address}`)
-      .pl(39)
-      .pr(8)
-      .rounded(8)
-      .h(26)
-      .flex_none()
-      .gap(0)
-      .items_center()
-      .text_size(12.5)
-      .when(on, (el) => el.bg(t.raised))
-      .hover((s) => s.bg(t.hover))
-      .on_click(() => this.peek(k.address))
-      .children(s.lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
-        .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
-        .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6))))
-      .when(Boolean(pic), el => el.child(div().mr(8).child(pic)))
-      .child(div().flex_1().truncate().text_color(on ? t.foreground : t.muted).child(k.name || k.template || k.program?.name || k.address))
-      .when(ompRoot(k, k), el => el.child(this.todoButton(t, k.address)))
-      .child(this.status(t, { status: st }, compact));
+  toggleFold(key, cx) {
+    this.folded.has(key) ? this.folded.delete(key) : this.folded.add(key);
+    cx.notify();
   }
 
-  treeLines(t, lines) {
-    return lines.map(l => div().self_start().mt(-4).w(9).h(17).mr(4).flex_none()
-      .when(Boolean(l), el => el.border_l(1.5).border_color(t.input))
-      .when(l === "└" || l === "├", el => el.border_b(1.5).rounded_bl(6)));
+  childState(row) {
+    if (row.child) return row.state !== "live" && row.child.status === "running" ? "idle" : row.child.status;
+    const state = this.listed.get(row.t.address) ?? row.t.status;
+    return state === "working" ? "running" : state === "done" ? "completed" : state === "error" ? "failed" : state ?? "idle";
+  }
+
+  stateIcon(t, state, live = true) {
+    if ((state === "running" || state === "in_progress") && live)
+      return svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900);
+    const color = state === "failed" || state === "blocked" ? t.blocked : state === "completed" ? t.done : t.dim;
+    const mark = state === "completed" ? "✓" : state === "failed" || state === "blocked" ? "!" :
+      state === "aborted" || state === "abandoned" ? "–" : state === "pending" ? "□" :
+      state === "running" || state === "in_progress" ? "◷" : "○";
+    return div().w(12).flex_none().text_center().text_color(color).child(mark);
+  }
+
+  sectionHeader(t, key, label, description = label) {
+    const open = !this.folded.has(key);
+    return h_flex().id(`section-${key}`).px(8).h(28).flex_none().min_w(0).gap(6).items_center()
+      .bg(t.surface)
+      .text_size(11.5).font_semibold().text_color(t.muted).cursor_pointer()
+      .role("button").accessibility_label(`${open ? "Collapse" : "Expand"} ${label}`)
+      .tooltip(`${description}; ${open ? "Collapse" : "Expand"}`)
+      .hover(el => el.bg(t.hover).text_color(t.foreground))
+      .on_click((_event, cx) => { cx.stop_propagation(); this.toggleFold(key, cx); })
+      .child(div().flex_1().min_w(0).truncate().child(label))
+      .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none());
+  }
+
+  detailSection(t, key, label, content, description = label) {
+    return v_flex().id(`detail-${key}`).min_w(0).flex_none().mt(6).mb(4)
+      .border(1).border_color(t.border).rounded(6).overflow_hidden()
+      .child(this.sectionHeader(t, key, label, description))
+      .when(!this.folded.has(key), el => el.child(
+        v_flex().id(`detail-body-${key}`).min_w(0).flex_none().py(4)
+          .border_t(1).border_color(t.border).children(content)));
+  }
+
+  childRow(t, id, name, state, description, selected = false, action = null, live = true) {
+    return h_flex().id(id).px(8).h(26).flex_none().min_w(0).gap(8).items_center().rounded(8).text_size(12.5)
+      .tooltip(description).accessibility_label(description)
+      .when(selected, el => el.bg(t.raised))
+      .when(Boolean(action), el => el.cursor_pointer().hover(s => s.bg(t.hover)).on_click(action))
+      .child(div().flex_1().min_w(0).truncate().text_color(selected ? t.foreground : t.muted).child(name))
+      .child(this.stateIcon(t, state, live));
+  }
+
+  subRow(t, row, shown) {
+    const k = row.t;
+    const state = this.childState(row);
+    const name = k.name || k.template || k.program?.name || k.address;
+    return this.childRow(t, `sub-${k.address}`, name, state, `${name}; ${state}; ${k.address}`,
+      k.address === shown, () => this.peek(k.address));
   }
 
   ompRow(t, address, row, state) {
     const child = row.child;
-    const live = state === "live";
-    const status = `${child.status}${live ? "" : state === "closed" ? " at close" : ` · ${state}`}`;
+    const status = `${child.status}${state === "live" ? "" : state === "closed" ? " at close" : ` · ${state}`}`;
     const description = `${child.id} (${child.agent}): ${child.task || child.id}; ${status}${child.model ? `; ${child.model}` : ""}`;
-    const color = child.status === "failed" ? t.blocked : child.status === "completed" ? t.done : t.dim;
-    return h_flex()
-      .id(`omp-sub-${address}-${child.id}`)
-      .pl(39).pr(8).rounded(8).h(26).flex_none().gap(0).items_center().text_size(12.5)
-      .tooltip(description).accessibility_label(description)
-      .children(this.treeLines(t, row.lines))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(child.id))
-      .when(live && child.status === "running", el => el.child(
-        svg("mods/workspace-chrome/spinner.svg").size(12).mr(5).flex_none().text_color(t.working).spin(900)))
-      .child(div().text_size(10.5).text_color(color).child(status));
-  }
-
-  todoButton(t, address) {
-    const open = this.todoOpen.has(address);
-    const label = `${open ? "Hide" : "Show"} OMP TODO`;
-    return div().id(`omp-todo-${address}`)
-      .size(22).flex_none().rounded(4).flex().items_center().justify_center()
-      .text_color(open ? t.foreground : t.muted)
-      .when(open, el => el.bg(t.raised))
-      .cursor_pointer().hover(el => el.bg(t.hover).text_color(t.foreground))
-      .role("button").accessibility_label(label).tooltip(label)
-      .on_click((_event, cx) => {
-        cx.stop_propagation();
-        open ? this.todoOpen.delete(address) : this.todoOpen.add(address);
-        cx.notify();
-      })
-      .child(svg("mods/omp-agents/todo.svg").size(15));
+    return this.childRow(t, `omp-sub-${address}-${child.id}`, child.id, child.status, description, false, null, state === "live");
   }
 
   todoRows(t, address, observation) {
     const { snapshot, state } = observation;
     const live = state === "live";
     const rows = [];
-    if (!snapshot || !snapshot.todos.some(phase => phase.tasks.length > 0))
-      return [div().pl(8).pr(8).pb(6).text_size(11.5).text_color(t.dim).child("No Task Yet")];
-    if (!live) rows.push(div().pl(39).pr(8).pb(4).text_size(11).text_color(t.dim)
+    const empty = () => div().px(8).pb(6).text_size(11.5).text_color(t.dim).child("No Task Yet");
+    if (!snapshot || snapshot.todos.length === 0) return [empty()];
+    if (!live) rows.push(div().px(8).pb(4).text_size(11).text_color(t.dim)
       .child(state === "closed" ? "Last known TODO · session closed" : "Last known TODO · stale"));
     snapshot.todos.forEach((phase, phaseIndex) => {
-      rows.push(div().id(`omp-phase-${address}-${phaseIndex}`).pl(8).pr(8).pt(4).pb(3)
-        .text_size(11.5).font_semibold().text_color(t.muted).child(phase.name || "Unnamed phase"));
-      phase.tasks.forEach((task, taskIndex) => {
-        const label = task.status === "in_progress" ? "In progress" : task.status === "pending" ? "Pending" :
-          task.status === "completed" ? "Completed" : task.status === "blocked" ? "Blocked" : "Abandoned";
-        const color = task.status === "blocked" ? t.blocked : task.status === "in_progress" && live ? t.working : t.dim;
-        const description = `${task.content}; ${label}${!live && task.status === "in_progress" ? " (last known)" : ""}${task.blocker ? `: ${task.blocker}` : ""}`;
-        rows.push(h_flex().id(`omp-task-${address}-${phaseIndex}-${taskIndex}`)
-          .pl(8).pr(8).h(26).flex_none().min_w(0).gap(0).items_center().text_size(11.5)
-          .accessibility_label(description).tooltip(task.content)
-          .child(div().self_start().w(7).h(13).mr(4).flex_none()
-            .border_l(1.5).border_b(1.5).border_color(t.input).rounded_bl(3))
-          .child(div().flex_1().min_w(0).mr(8).truncate()
-            .text_color(task.status === "completed" || task.status === "abandoned" ? t.dim : t.muted)
-            .when(task.status === "completed", el => el.line_through()).child(task.content))
-          .child(task.status === "in_progress" && live
-            ? svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(color).spin(900)
-            : div().w(12).flex_none().text_center().text_color(color)
-              .child(task.status === "completed" ? "✓" : task.status === "pending" ? "□" : task.status === "blocked" ? "!" : task.status === "abandoned" ? "–" : "◷")));
-      });
+      const key = `phase-${address}-${phaseIndex}-${phase.name}`;
+      const content = [];
+      if (!this.folded.has(key)) {
+        if (phase.tasks.length === 0) content.push(empty());
+        phase.tasks.forEach((task, taskIndex) => {
+          const label = task.status === "in_progress" ? "In progress" : task.status === "pending" ? "Pending" :
+            task.status === "completed" ? "Completed" : task.status === "blocked" ? "Blocked" : "Abandoned";
+          const description = `${task.content}; ${label}${!live && task.status === "in_progress" ? " (last known)" : ""}${task.blocker ? `: ${task.blocker}` : ""}`;
+          content.push(h_flex().id(`omp-task-${address}-${phaseIndex}-${taskIndex}`)
+            .px(8).h(26).flex_none().min_w(0).gap(8).items_center().text_size(11.5)
+            .accessibility_label(description).tooltip(task.content)
+            .child(div().flex_1().min_w(0).truncate()
+              .text_color(task.status === "completed" || task.status === "abandoned" ? t.dim : t.muted)
+              .when(task.status === "completed", el => el.line_through()).child(task.content))
+            .child(this.stateIcon(t, task.status, live)));
+        });
+      }
+      rows.push(this.detailSection(t, key, phase.name || "Unnamed phase", content, `${address} · ${phase.name || "Unnamed phase"}`));
     });
     return rows;
   }
 
-  observerFooter(t, address) {
+  observerDetails(t, address) {
     const observation = this.observer.get(address);
     const note = observation.snapshot && observation.state !== "live"
-      ? [div().id(`omp-observer-state-${address}`).pl(39).pr(8).py(3).text_size(10.5).text_color(t.dim)
+      ? [div().id(`omp-observer-state-${address}`).px(8).py(3).text_size(10.5).text_color(t.dim)
         .accessibility_label(`OMP observer ${observation.state}`)
         .tooltip(observation.state === "stale" ? "No OMP heartbeat for more than 35 seconds; showing last known state" :
           observation.state === "closed" ? "OMP session closed; showing recorded outcomes" : "OMP snapshot missing, invalid, or machine unavailable")
         .child(`OMP · ${observation.state === "closed" ? "session closed" : observation.state}`)]
       : [];
-    return [...note, ...(this.todoOpen.has(address) ? this.todoRows(t, address, observation) : [])];
+    return [...note, ...this.todoRows(t, address, observation)];
   }
 
   // compact: a ! for blocked where a header already says "Needs you".
@@ -376,17 +371,24 @@ export default class Agents extends View {
     setAgentOrder(list.map((a) => a.address));
 
     const withKids = (a, i) => {
-      const branches = collapsed ? [] : trees.get(a.address);
+      const branches = trees.get(a.address);
       const subs = branches.filter(s => !s.footer);
-      const r = row(a, i, subs);
-      const children = this.folded.has(a.address) ? [] : branches.flatMap(s => s.footer
-        ? this.observerFooter(t, s.footer)
-        : [s.child ? this.ompRow(t, s.owner, s, s.state) : this.subRow(t, s, shown, byPriority)]);
-      return [r, ...children, ...(!collapsed && isOmp(a) ? this.observerFooter(t, a.address) : [])];
+      const owners = [...new Set([...(isOmp(a) ? [a.address] : []), ...branches.filter(s => s.footer).map(s => s.footer)])];
+      const taskCount = owners.reduce((total, owner) => total + (this.observer.get(owner).snapshot?.todos.reduce((n, phase) => n + phase.tasks.length, 0) ?? 0), 0);
+      const r = row(a, i, subs, taskCount, subs.length > 0 || owners.length > 0);
+      if (collapsed || this.folded.has(a.address)) return [r];
+      const details = [];
+      if (subs.length) {
+        const key = `children-${a.address}`;
+        const content = this.folded.has(key) ? [] : subs.map(s => s.child ? this.ompRow(t, s.owner, s, s.state) : this.subRow(t, s, shown));
+        details.push(this.detailSection(t, key, "Child agents", content));
+      }
+      for (const owner of owners) details.push(...this.observerDetails(t, owner));
+      return [r, ...details];
     };
 
-    // The fold chevron; folded, the count too, colored by the most urgent one.
-    const fold = (a, subs) => {
+    // One root control hides or restores both child agents and task sections.
+    const fold = (a, subs, taskCount) => {
       const sts = subs.map(rowStatus);
       const top = sts.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
       const open = !this.folded.has(a.address);
@@ -401,16 +403,15 @@ export default class Agents extends View {
         .text_size(11)
         .text_color(open ? t.dim : (t[top] ?? t.dim))
         .cursor_pointer()
-        .accessibility_label(`${open ? "Fold" : "Expand"} ${subs.length} child agents`)
-        .tooltip(`${open ? "Fold" : "Expand"} child agents`)
+        .accessibility_label(`${open ? "Hide" : "Show"} child agents and tasks`)
+        .tooltip(`${open ? "Hide" : "Show"} child agents and tasks; ${subs.length} child agents, ${taskCount} tasks`)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .on_click((_e, cx) => {
           cx.stop_propagation();
-          open ? this.folded.add(a.address) : this.folded.delete(a.address);
-          cx.notify();
+          this.toggleFold(a.address, cx);
         })
         .child(svg(`mods/workspace-chrome/chevron-${open ? "down" : "right"}.svg`).size(11).flex_none())
-        .when(!open, (el) => el.child(String(subs.length)));
+        .when(!open, (el) => el.child(String(subs.length + taskCount)));
     };
 
     // A row reads "space \u00b7 detail": the detail is a tab someone named or the
@@ -428,7 +429,7 @@ export default class Agents extends View {
       if (detail.get(a.address) == null && seen[`${a.space_name}\u0000`] > 1) detail.set(a.address, label(a));
     }
 
-    const row = (a, i, subs = []) => {
+    const row = (a, i, subs, taskCount, hasDetails) => {
       const pic = icon(a.program, 16, t.foreground);
       const more = detail.get(a.address);
       // An agent on another machine (`vps/t7`) says which.
@@ -444,7 +445,7 @@ export default class Agents extends View {
           .hover((s) => s.bg(t.hover))
           .on_click(() => run("pane.focus", { pane: a.pane }))
           .child(div().flex_1().min_w(0).whitespace_nowrap().text_right().text_color(t.muted).child(String(i + 1)))
-          .when(isOmp(a), el => el.child(this.todoButton(t, a.address)))
+          .when(hasDetails, el => el.child(fold(a, subs, taskCount)))
           .child(h_flex().w(14).flex_none().items_center().justify_center().child(this.status(t, a, true)));
       }
       const when = this.since(a);
@@ -489,17 +490,15 @@ export default class Agents extends View {
         })
         .on_click(() => run("pane.focus", { pane: a.pane }))
         .when(Boolean(pic), el => el.child(div().id(`agent-fold-${a.address}`)
-          .when(subs.length > 0, el => el.on_click((_e, cx) => {
+          .when(hasDetails, el => el.on_click((_e, cx) => {
             cx.stop_propagation();
-            this.folded.has(a.address) ? this.folded.delete(a.address) : this.folded.add(a.address);
-            cx.notify();
+            this.toggleFold(a.address, cx);
           })).child(pic)))
         .child(h_flex().flex_1().min_w(0).gap(5).items_center()
           .child(div().min_w(0).max_w(full && more ? 120 : 200).truncate().text_color(idle ? t.muted : t.foreground).child(name))
           .when(full && Boolean(more), el => el.child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`\u00b7 ${more}`))))
         .when(Boolean(machine), el => el.child(div().text_size(10).text_color(t.dim).child(machine)))
-        .when(isOmp(a), el => el.child(this.todoButton(t, a.address)))
-        .when(subs.length > 0, el => el.child(fold(a, subs)))
+        .when(hasDetails, el => el.child(fold(a, subs, taskCount)))
         .when(this.hovered === a.address, el => el.child(pin))
         .when(this.hovered !== a.address && Boolean(when), el => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - when))))
         .child(this.status(t, a, byPriority && !isPinned));
