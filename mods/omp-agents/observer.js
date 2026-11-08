@@ -81,14 +81,14 @@ function visibleSnapshot(entry, snapshot) {
   }
   const arrived = history.seen.size > 0 && snapshot.children.some(child => !history.seen.has(child.id));
   for (const child of snapshot.children) {
-    if (child.status !== "completed") history.hidden.delete(child.id);
+    if (child.status !== "completed" && child.status !== "failed") history.hidden.delete(child.id);
     else if (arrived && history.seen.has(child.id)) history.hidden.add(child.id);
   }
   for (const child of snapshot.children) history.seen.add(child.id);
   if (history.hidden.size === 0) return snapshot;
   const parents = new Map(snapshot.children.map(child => [child.id, child.parentId]));
   const children = snapshot.children.filter(child => !history.hidden.has(child.id)).map(child => {
-    // A completed ancestor must not take its still-running descendants with it.
+    // A hidden ancestor must not take its still-running descendants with it.
     let parentId = child.parentId;
     while (history.hidden.has(parentId)) parentId = parents.get(parentId);
     return parentId === child.parentId ? child : { ...child, parentId };

@@ -70,7 +70,7 @@ describe("observer snapshot boundaries", () => {
   });
 });
 
-describe("completed child visibility", () => {
+describe("completed and failed child visibility", () => {
   test("keeps the latest outcomes until a new child arrives, without heartbeat resurrection", async () => {
     const view = observing([child("old")]);
     await view.update();
@@ -96,12 +96,13 @@ describe("completed child visibility", () => {
     expect(view.ids()).toEqual(["quick"]);
   });
 
-  test("keeps running, idle, failed and aborted children when clearing completed ones", async () => {
-    const retained = [child("active"), child("idle", "Main", "idle"), child("failure", "Main", "failed"), child("cancelled", "Main", "aborted")];
-    const view = observing([child("finished", "Main", "completed"), ...retained]);
+  test("keeps running, idle and aborted children when clearing completed and failed ones", async () => {
+    const retained = [child("active"), child("idle", "Main", "idle"), child("cancelled", "Main", "aborted")];
+    const outcomes = [child("finished", "Main", "completed"), child("failure", "Main", "failed")];
+    const view = observing([...outcomes, ...retained]);
     await view.update();
-    await view.update({ children: [child("finished", "Main", "completed"), ...retained, child("incoming")] });
-    expect(view.ids()).toEqual(["active", "idle", "failure", "cancelled", "incoming"]);
+    await view.update({ children: [...outcomes, ...retained, child("incoming")] });
+    expect(view.ids()).toEqual(["active", "idle", "cancelled", "incoming"]);
   });
 
   test("promotes live descendants past hidden completed ancestors without editing the canonical tree or TODOs", async () => {
@@ -115,6 +116,43 @@ describe("completed child visibility", () => {
     ]);
     expect(view.reader.get("t7").snapshot.children).toEqual([...children, child("incoming")]);
     expect(view.reader.get("t7").snapshot.todos).toEqual(todos);
+  });
+
+  test("retains new failures until the next arrival and keeps old failures hidden across missing reads", async () => {
+    const view = observing([child("old")]);
+    await view.update();
+    await view.update({ children: [child("old", "Main", "failed")] });
+    expect(view.ids()).toEqual(["old"]);
+    const outcomes = [child("old", "Main", "failed"), child("quick", "Main", "failed")];
+    await view.update({ children: outcomes });
+    expect(view.ids()).toEqual(["quick"]);
+    await view.update({ updatedAt: 1100 });
+    expect(view.ids()).toEqual(["quick"]);
+    await view.missing();
+    await view.update({ children: outcomes });
+    expect(view.ids()).toEqual(["quick"]);
+    await view.update({ children: [...outcomes, child("incoming")] });
+    expect(view.ids()).toEqual(["incoming"]);
+    expect(view.reader.get("t7").snapshot.children).toEqual([...outcomes, child("incoming")]);
+  });
+
+  test("promotes active descendants of hidden failures and restores a restarted child", async () => {
+    const failed = child("failed-parent", "Main", "failed");
+    const active = child("active", failed.id);
+    const view = observing([failed, active]);
+    await view.update();
+    await view.update({ children: [failed, active, child("incoming")] });
+    expect(view.rows().map(row => [row.child.id, row.child.parentId])).toEqual([
+      ["active", "Main"], ["incoming", "Main"],
+    ]);
+    await view.update({ children: [{ ...failed, status: "running" }, active, child("incoming")] });
+    expect(view.ids()).toEqual(["failed-parent", "active", "incoming"]);
+    await view.update({ children: [failed, active, child("incoming")] });
+    expect(view.ids()).toEqual(["failed-parent", "active", "incoming"]);
+    await view.update({ children: [failed, active, child("incoming"), child("next")] });
+    expect(view.ids()).toEqual(["active", "incoming", "next"]);
+    await view.update({ sessionId: "session-b", children: [failed, active] });
+    expect(view.ids()).toEqual(["failed-parent", "active"]);
   });
 
   test("resets history on a new session and lets a resumed child show its next result", async () => {
